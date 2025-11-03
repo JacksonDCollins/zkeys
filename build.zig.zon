@@ -14,6 +14,14 @@
             .url = "git+https://github.com/zig-gamedev/zemscripten#00da03b188220374a57cb34cda6230b8d53737ea",
             .hash = "zemscripten-0.2.0-dev-sRlDqFJSAAB8hgnRt5DDMKP3zLlDtMnUDwYRJVCa5lGY",
         },
+        .protobuf = .{
+            .url = "git+https://github.com/Arwalk/zig-protobuf?ref=master#0c69509ffd2a9ca4448977fcbd94ad5217b3df8e",
+            .hash = "protobuf-3.0.0-0e82anPRKADr_h_KCVG8ZMCa5fVi4KRpk_e6RH-SnG-k",
+        },
+        .pbufzmk = .{
+            .url = "git+https://github.com/zmkfirmware/zmk-studio-messages.git#main",
+            .hash = "N-V-__8AAFskAAClsJG9tXf00SzLjbPiVVIeL0qJve9c8MtS",
+        },
     },
     .paths = .{
         "build.zig",

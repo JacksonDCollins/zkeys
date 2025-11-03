@@ -1,5 +1,6 @@
 const std = @import("std");
 const zemscripten = @import("zemscripten");
+const protobuf = @import("protobuf");
 
 fn buildBin(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !void {
     const exe_mod = b.createModule(.{
@@ -11,6 +12,31 @@ fn buildBin(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
         .name = "template",
         .root_module = exe_mod,
     });
+
+    const pbuf_dep = b.dependency("pbufzmk", .{});
+    const proto_files = b.addInstallDirectory(.{
+        .source_dir = pbuf_dep.path("proto"),
+        .install_dir = .prefix,
+        .install_subdir = "proto",
+    });
+
+    // first create a build for the dependency
+    const protobuf_dep = b.dependency("protobuf", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const gen_proto = b.step("gen-proto", "generates zig files from protocol buffer definitions");
+
+    const protoc_step = protobuf.RunProtocStep.create(protobuf_dep.builder, target, .{
+        // out directory for the generated zig files
+        .destination_directory = b.path("src/proto"),
+        .source_files = &.{
+            "zig-out/proto/zmk/core.proto",
+        },
+        .include_directories = &.{},
+    });
+    protoc_step.step.dependOn(&proto_files.step);
+    gen_proto.dependOn(&protoc_step.step);
 
     const sdl3 = b.dependency("sdl3", .{
         .target = target,
