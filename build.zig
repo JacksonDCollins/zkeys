@@ -3,16 +3,6 @@ const zemscripten = @import("zemscripten");
 const protobuf = @import("protobuf");
 
 fn buildBin(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !void {
-    const exe_mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const exe = b.addExecutable(.{
-        .name = "template",
-        .root_module = exe_mod,
-    });
-
     const pbuf_dep = b.dependency("pbufzmk", .{});
     const proto_files = b.addInstallDirectory(.{
         .source_dir = pbuf_dep.path("proto"),
@@ -27,16 +17,53 @@ fn buildBin(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
     });
     const gen_proto = b.step("gen-proto", "generates zig files from protocol buffer definitions");
 
+    const dir = b.pathJoin(
+        &.{ b.getInstallPath(
+            proto_files.options.install_dir,
+            proto_files.options.install_subdir,
+        ), "zmk" },
+    );
     const protoc_step = protobuf.RunProtocStep.create(protobuf_dep.builder, target, .{
         // out directory for the generated zig files
         .destination_directory = b.path("src/proto"),
-        .source_files = &.{
-            "zig-out/proto/zmk/core.proto",
+        .source_files = files: {
+            var adir = try std.fs.openDirAbsolute(dir, .{ .iterate = true });
+            defer adir.close();
+
+            var it = try adir.walk(b.allocator);
+            defer it.deinit();
+
+            var files = try std.ArrayList([]const u8).initCapacity(b.allocator, 16);
+            while (try it.next()) |entry| {
+                if (entry.kind != .file) continue;
+                if (std.mem.endsWith(u8, entry.path, ".proto")) {
+                    const file_path = b.pathJoin(&.{ dir, entry.path });
+                    try files.append(b.allocator, file_path);
+                    std.debug.print(
+                        "Found proto file: {s}\n",
+                        .{
+                            file_path,
+                        },
+                    );
+                }
+            }
+            break :files try files.toOwnedSlice(b.allocator);
         },
-        .include_directories = &.{},
+        .include_directories = &.{dir},
     });
     protoc_step.step.dependOn(&proto_files.step);
     gen_proto.dependOn(&protoc_step.step);
+
+    // Build main SDL3 application
+    const exe_mod = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const exe = b.addExecutable(.{
+        .name = "template",
+        .root_module = exe_mod,
+    });
 
     const sdl3 = b.dependency("sdl3", .{
         .target = target,
@@ -45,6 +72,7 @@ fn buildBin(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
         .ext_image = true,
     });
     exe.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    exe.root_module.addImport("protobuf", protobuf_dep.module("protobuf"));
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -56,6 +84,99 @@ fn buildBin(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
+
+    // Build ZMK Studio D-Bus example
+    const zmk_dbus_mod = b.createModule(.{
+        .root_source_file = b.path("src/zmk_example_dbus.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const zmk_dbus = b.addExecutable(.{
+        .name = "zmk-dbus",
+        .root_module = zmk_dbus_mod,
+    });
+
+    zmk_dbus.root_module.addImport("protobuf", protobuf_dep.module("protobuf"));
+    zmk_dbus.linkLibC();
+    zmk_dbus.linkSystemLibrary("dbus-1");
+    b.installArtifact(zmk_dbus);
+
+    const run_dbus_cmd = b.addRunArtifact(zmk_dbus);
+    run_dbus_cmd.step.dependOn(b.getInstallStep());
+
+    if (b.args) |args| {
+        run_dbus_cmd.addArgs(args);
+    }
+
+    const run_dbus_step = b.step("run-dbus", "Run the ZMK Studio example (D-Bus version)");
+    run_dbus_step.dependOn(&run_dbus_cmd.step);
+
+    // Build device scanner
+    const scan_mod = b.createModule(.{
+        .root_source_file = b.path("src/scan_devices.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const scan_exe = b.addExecutable(.{
+        .name = "scan-devices",
+        .root_module = scan_mod,
+    });
+
+    scan_exe.linkLibC();
+    scan_exe.linkSystemLibrary("bluetooth");
+    b.installArtifact(scan_exe);
+
+    const run_scan_cmd = b.addRunArtifact(scan_exe);
+    run_scan_cmd.step.dependOn(b.getInstallStep());
+
+    const run_scan_step = b.step("scan", "Scan for Bluetooth devices");
+    run_scan_step.dependOn(&run_scan_cmd.step);
+
+    // Build device checker
+    const check_mod = b.createModule(.{
+        .root_source_file = b.path("src/check_device.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const check_exe = b.addExecutable(.{
+        .name = "check-device",
+        .root_module = check_mod,
+    });
+
+    b.installArtifact(check_exe);
+
+    const run_check_cmd = b.addRunArtifact(check_exe);
+    run_check_cmd.step.dependOn(b.getInstallStep());
+
+    if (b.args) |args| {
+        run_check_cmd.addArgs(args);
+    }
+
+    const run_check_step = b.step("check", "Check if a device is paired");
+    run_check_step.dependOn(&run_check_cmd.step);
+
+    // Build connection checker
+    const conn_mod = b.createModule(.{
+        .root_source_file = b.path("src/check_connection.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const conn_exe = b.addExecutable(.{
+        .name = "check-connection",
+        .root_module = conn_mod,
+    });
+
+    b.installArtifact(conn_exe);
+
+    const run_conn_cmd = b.addRunArtifact(conn_exe);
+    run_conn_cmd.step.dependOn(b.getInstallStep());
+
+    if (b.args) |args| {
+        run_conn_cmd.addArgs(args);
+    }
+
+    const run_conn_step = b.step("check-conn", "Check if device is connected via bluetoothd");
+    run_conn_step.dependOn(&run_conn_cmd.step);
 }
 
 fn buildWeb(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !void {

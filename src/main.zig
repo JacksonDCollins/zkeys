@@ -1,6 +1,8 @@
 const sdl3 = @import("sdl3");
 const std = @import("std");
 const builtin = @import("builtin");
+const protobuf = @import("protobuf");
+const pb_types = @import("proto/zmk/core.pb.zig");
 
 // Use main callbacks.
 comptime {
@@ -99,6 +101,7 @@ pub fn init(
     app_state.* = state;
 
     try log_app.logInfo("Finished initializing", .{});
+
     return .run;
 }
 
@@ -138,7 +141,7 @@ pub fn iterate(
     try app_state.renderer.renderDebugText(.{ .x = 0, .y = 0 }, fps_text);
 
     // Finish and return.
-    try app_state.renderer.present();
+    // try app_state.renderer.present();
     return .run;
 }
 

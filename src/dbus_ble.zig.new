@@ -1,0 +1,52 @@
+const std = @import("std");
+
+/// D-Bus bindings for BlueZ communication
+pub const c = @cImport({
+    @cInclude("dbus/dbus.h");
+});
+
+pub const DBusError = error{
+    ConnectionFailed,
+    MessageError,
+    ReadError,
+    WriteError,
+    NotFound,
+    Timeout,
+    NoReply,
+    InvalidArgs,
+};
+
+pub const DBusConnection = struct {
+    conn: ?*c.DBusConnection,
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator) !DBusConnection {
+        var err: *c.DBusError = @ptrCast(@alignCast(c.dbus_malloc(@sizeOf(c.DBusError))));
+        if (err == null) return DBusError.ConnectionFailed;
+        defer c.dbus_free(err);
+        
+        c.dbus_error_init(err);
+
+        const conn = c.dbus_bus_get(c.DBUS_BUS_SYSTEM, err);
+        if (c.dbus_error_is_set(err) != 0) {
+            std.log.err("D-Bus connection error", .{});
+            c.dbus_error_free(err);
+            return DBusError.ConnectionFailed;
+        }
+
+        if (conn == null) {
+            return DBusError.ConnectionFailed;
+        }
+
+        return DBusConnection{
+            .conn = conn,
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *DBusConnection) void {
+        if (self.conn) |conn| {
+            c.dbus_connection_unref(conn);
+        }
+    }
+};
